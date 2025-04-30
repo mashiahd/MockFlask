@@ -1,173 +1,120 @@
 #!flask/bin/python
-from sqlite3 import Timestamp
-from flask import Flask, jsonify, abort, make_response, request, redirect
+from flask import Flask, make_response, request
+from flask_compress import Compress
+from functools import wraps
 import logging
-import time
+import os
+from pathlib import Path
+import sys
 
-port = 80
-
-app = Flask(__name__)
-app.config["DEBUG"] = True
-
+# Configure logging first
 logging.basicConfig(
-	filename='requests.log',
-	filemode='w',
-	level=logging.DEBUG,
-	format='[%(levelname)s] %(message)s'
+	filename='app.log',
+	filemode='a',
+	level=logging.ERROR,
+	format='%(asctime)s [%(levelname)s] %(message)s'
 )
 
-# Adjusting the logger for werkzeug
+# Default configuration
+DEFAULT_CONFIG = {
+	'HOST': '127.0.0.1',
+	'PORT': '8080'
+}
+
+def create_default_env():
+	env_path = Path('.env')
+	if not env_path.exists():
+		with open(env_path, 'w', encoding='utf-8') as f:
+			for key, value in DEFAULT_CONFIG.items():
+				f.write(f"{key}={value}\n")
+		logging.error("Default .env file created. Please edit it with your desired values and run the application again.")
+		sys.exit(0)
+
+def load_config():
+	create_default_env() # Create .env file if it doesn't exist
+	
+	# Load environment variables
+	host = os.getenv('HOST', DEFAULT_CONFIG['HOST'])
+	port = os.getenv('PORT', DEFAULT_CONFIG['PORT'])
+
+	# Validate host
+	if not host:
+		logging.error("Error: HOST is not set in .env file")
+		sys.exit(1)
+	else:
+		if not all(octet.isdigit() and 0 <= int(octet) <= 255 for octet in host.split('.')) or len(host.split('.')) != 4:
+			logging.error("Error: HOST must be a valid IP address with 4 octets (e.g. 192.168.1.1)")
+			sys.exit(1)
+	
+	# Validate port
+	try:
+		port = int(port)
+		if not (1 <= port <= 65535):
+			raise ValueError("Port must be between 1 and 65535")
+	except ValueError as e:
+		logging.error(f"Error in .env file: {e}")
+		sys.exit(1)
+	
+	return host, port
+
+# Load configuration
+host, port = load_config()
+
+app = Flask(__name__)
+app.config["DEBUG"] = False  # Disable debug mode in production
+app.config["COMPRESS_MIMETYPES"] = ['text/html', 'text/css', 'text/xml', 'application/json', 'application/javascript']
+app.config["COMPRESS_LEVEL"] = 6
+app.config["COMPRESS_MIN_SIZE"] = 500
+
+# Initialize compression
+Compress(app)
+
+# Configure logging
+logging.basicConfig(
+	filename='app.log',
+	filemode='a',
+	level=logging.ERROR,
+	format='%(asctime)s [%(levelname)s] %(message)s'
+)
+
+# Set werkzeug logger to ERROR level to reduce noise
 werkzeug_logger = logging.getLogger('werkzeug')
-werkzeug_logger.setLevel(logging.DEBUG)
+werkzeug_logger.setLevel(logging.ERROR)
 
-# Adjusting the logger for Flask's app
-app.logger.setLevel(logging.DEBUG)
+# Set Flask logger to ERROR level
+app.logger.setLevel(logging.ERROR)
 
-# @app.before_request
-# def decode_latin1():
-# 	if request.data:
-# 		request._cached_data = request.data.decode('latin-1')
-# 	if request.form:
-# 		request._cached_form = {k: v for k, v in request.form.items()}
-# 	if request.query_string:
-# 		request._cached_query_string = request.query_string.decode('latin-1')
+def add_response_headers(headers={}):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            resp = make_response(f(*args, **kwargs))
+            h = resp.headers
+            for header, value in headers.items():
+                h[header] = value
+            return resp
+        return decorated_function
+    return decorator
 
-
-@app.route('/bWAPP/login.php', methods=['POST'])
-def login():
-	logging.info(f'Login Payload: {request.get_data()}')
-	# Create a response object to handle cookies
-	resp = make_response(redirect('/main.php', code=302))  # Add the redirect URL here
-	
-	# Set the cookies in the response
-	resp.set_cookie(
-		'PHPSESSID',
-		value='8a1b5aeda7232ec9f7abfa9539f15f10',
-		path='/',
-		max_age=604800  # 604800 seconds = 1 week
-	)
-	resp.set_cookie(
-		'security_level',
-		value='0',
-		expires='Thu, 01-Jan-2026 12:16:43 GMT',
-		path='/',
-		max_age=604800  # 604800 seconds = 1 week
-	)
-	
-	print("Login Was Made")
-	return resp  # No need to add the status code explicitly, redirect already defaults to 302
-
-@app.route('/test', methods=['GET'])
-def test():
-	logging.info(f'Test Request: {request.path}, Cookies: {request.cookies}')
-	return "a2a", 200
-
-@app.route('/bWAPP/login.php', methods=['POST'])
-def login1():
-	logging.info(f'Login1 Payload: {request.get_data()}')
-	# Create a response object to handle cookies
-	resp = make_response(redirect('/main.php', code=302))  # Add the redirect URL here
-	
-	# Set the cookie in the response
-	resp.set_cookie(
-		'auth_token',
-		value='test-token',
-		max_age=604800,  # 604800 seconds = 1 week
-		secure=True if (request.path).startswith("https") else False,
-		httponly=True,
-		samesite="Strict",
-	)
-	
-	return resp  # No need to add the status code explicitly, redirect already defaults to 302
-
-@app.route('/bWAPP/login2.php', methods=['POST'])
-def login2():
-	logging.info(f'Login2 Payload: {request.get_data()}')
-
-	payload = {"result": "success"}
-	resp = make_response(jsonify(payload))
-	
-	# Set the cookie in the response
-	resp.set_cookie(
-		'auth_token',
-		value='test-token',
-		max_age=604800,  # 604800 seconds = 1 week
-		secure=True if (request.path).startswith("https") else False,
-		httponly=True,
-		samesite="Strict",
-	)
-	
-	# Redirect after setting the payload and cookie
-	resp.headers['Location'] = '/main2.php'  # Manually add the redirect URL
-	
-	return resp, 302  # No need to add the status code explicitly, redirect already defaults to 302
-
-@app.route('/bWAPP/login3.php', methods=['POST'])
-def login3():
-	logging.info(f'Login3 Payload: {request.get_data()}')
-	# Create a response object to handle cookies
-	resp = make_response(redirect('/main.php', code=302))  # Add the redirect URL here
-	
-	# Set the cookie in the response
-	resp.set_cookie(
-		'auth_token',
-		value='test-token',
-		max_age=604800,  # 604800 seconds = 1 week
-		secure=True if (request.path).startswith("https") else False,
-		httponly=True,
-		samesite="Strict",
-	)
-	
-	return resp  # No need to add the status code explicitly, redirect already defaults to 302
+@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])
+@add_response_headers({
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+})
+def catch_all(path):
+    app.logger.info('Request received: %s %s', request.method, path)
+    return '', 204
 
 @app.route('/monitors/isalive', methods=['GET'])
+@add_response_headers({
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
+})
 def hc():
 	return "up", 200
 
-@app.route('/bWAPP/sqli_1.php', methods=['GET'])
-def sqli_1():
-	print(f"Path Accessed: {request.path}")
-	print(f"Query String: {request.query_string}")
-	return "sqli_1", 200
-
-@app.route('/bWAPP/sqli_13.php', methods=['POST'])
-def sqli_13():
-	print(f"Path Accessed: {request.path}")
-	print(f"Query String: {request.query_string}")
-	return "sqli_13", 200
-
-@app.route('/bWAPP/sqli_7.php', methods=['POST'])
-def php():
-	print(f"Path Accessed: {request.path}")
-	print(f"Body: {request.get_data()}")
-	return "sqli_7", 200
-
-@app.route('/bWAPP/sqli_user_agent.php', methods=['GET'])
-def sqli_user_agent():
-	print(f"Path Accessed: {request.path}")
-	print(f"Header (UA): {request.headers.get('User-Agent')}")
-	return "sqli_user_agent", 200
-
-@app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
-@app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'])
-def catch_all(path):
-	if request.method == 'POST':
-		data = request.form if request.form else request.get_json()
-		print(f'Catch POST: {path}?{request.query_string}, Data: {data}')
-	else:
-		print(f'Catch: {path}?{request.query_string}')
-	# time.sleep(120)  # Simulate a timeout by sleeping for 60 seconds
-	# return '', 408 .ץ.ץ.ץ.ץ  # Return a 408 Request Timeout status
-	return '', 200
-
-@app.errorhandler(404)
-def not_found(error):
-	try:
-		test_header = request.headers.get('X-Apitest-R')
-		logging.info(f' 404 : {request.path} Test: {test_header}')
-	except:
-		logging.info(f' 404 : {request.path}')
-	return make_response(jsonify({'error': 'Not found'}), 404)
-
 if __name__ == "__main__":
-	app.run(debug=True, host='0.0.0.0', port=port)
+	print("App Is Starting - http://" + host + ":" + port)
+	app.run(host=host, port=port)
