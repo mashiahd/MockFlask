@@ -6,6 +6,10 @@ import logging
 import os
 from pathlib import Path
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging first
 logging.basicConfig(
@@ -116,5 +120,4 @@ def hc():
 	return "up", 200
 
 if __name__ == "__main__":
-	print(f"App Is Starting - http://{host}:{port}")
 	app.run(host=host, port=port)
