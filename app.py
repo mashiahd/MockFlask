@@ -116,5 +116,5 @@ def hc():
 	return "up", 200
 
 if __name__ == "__main__":
-	print("App Is Starting - http://" + host + ":" + port)
+	print(f"App Is Starting - http://{host}:{port}")
 	app.run(host=host, port=port)
