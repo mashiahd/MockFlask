@@ -120,4 +120,5 @@ def hc():
 	return "up", 200
 
 if __name__ == "__main__":
+	print(f"Host: {host}, Port: {port}")
 	app.run(host=host, port=port)
