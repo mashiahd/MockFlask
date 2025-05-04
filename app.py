@@ -22,7 +22,8 @@ logging.basicConfig(
 # Default configuration
 DEFAULT_CONFIG = {
 	'HOST': '127.0.0.1',
-	'PORT': '8080'
+	'PORT': '8080',
+	'CONSOLE_PRINT': '1'
 }
 
 def create_default_env():
@@ -40,6 +41,7 @@ def load_config():
 	# Load environment variables
 	host = os.getenv('HOST', DEFAULT_CONFIG['HOST'])
 	port = os.getenv('PORT', DEFAULT_CONFIG['PORT'])
+	console_print = os.getenv('CONSOLE_PRINT', DEFAULT_CONFIG['CONSOLE_PRINT'])
 
 	# Validate host
 	if not host:
@@ -59,10 +61,10 @@ def load_config():
 		logging.error(f"Error in .env file: {e}")
 		sys.exit(1)
 	
-	return host, port
+	return host, port, console_print
 
 # Load configuration
-host, port = load_config()
+host, port, console_print = load_config()
 
 app = Flask(__name__)
 app.config["DEBUG"] = False  # Disable debug mode in production
@@ -108,6 +110,8 @@ def add_response_headers(headers={}):
 })
 def catch_all(path):
     app.logger.info('Request received: %s %s', request.method, path)
+    if console_print == '1':
+        print(f"Request received: {request.method} {path}")
     return '', 204
 
 @app.route('/monitors/isalive', methods=['GET'])
